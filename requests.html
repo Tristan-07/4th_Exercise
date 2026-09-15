@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Requests - Laboratory Asset & Approval System</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h2>Lab Asset System</h2>
+        <p>Lab 4: Access & Approvals</p>
+      </div>
+      <ul class="sidebar-nav" id="sidebarNav"></ul>
+    </aside>
+
+    <div class="main-wrapper">
+      <header class="top-header">
+        <h1 class="page-title">Borrowing Requests</h1>
+        <div id="userProfileBadge" class="user-profile-badge"></div>
+      </header>
+
+      <main class="content-body">
+        <!-- New Borrowing Request Form Card -->
+        <div class="card">
+          <h2 class="card-title">Submit New Borrowing Request</h2>
+          
+          <div id="requestAlert" class="alert" style="display: none;"></div>
+
+          <form id="borrowingForm">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;">
+              <div class="form-group">
+                <label for="equipmentSelect">Select Equipment (Available Only)</label>
+                <select id="equipmentSelect" class="form-control" required>
+                  <option value="">Loading equipment...</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="requestQuantity">Quantity</label>
+                <input type="number" id="requestQuantity" class="form-control" value="1" min="1" max="50" required>
+              </div>
+
+              <div class="form-group">
+                <label for="expectedReturnDate">Expected Return Date</label>
+                <input type="date" id="expectedReturnDate" class="form-control" required>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-top: 12px;">
+              <label for="requestPurpose">Purpose of Borrowing</label>
+              <textarea id="requestPurpose" class="form-control" rows="3" placeholder="Explain laboratory course activity or research purpose..." required></textarea>
+            </div>
+
+            <button type="submit" id="submitBtn" class="btn btn-primary" style="margin-top: 12px;">
+              <span id="submitSpinner" class="spinner" style="display: none;"></span>
+              <span id="submitText">Submit Borrowing Request</span>
+            </button>
+          </form>
+        </div>
+
+        <!-- My Requests Table Card -->
+        <div class="card">
+          <h2 class="card-title">My Borrowing History & Status</h2>
+          
+          <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 0.9rem;">
+              <thead>
+                <tr style="background-color: var(--bg-color); text-align: left; border-bottom: 2px solid var(--border-color);">
+                  <th style="padding: 12px;">Request ID</th>
+                  <th style="padding: 12px;">Equipment</th>
+                  <th style="padding: 12px;">Qty</th>
+                  <th style="padding: 12px;">Purpose</th>
+                  <th style="padding: 12px;">Return Date</th>
+                  <th style="padding: 12px;">Status</th>
+                  <th style="padding: 12px;">Details / Reason</th>
+                </tr>
+              </thead>
+              <tbody id="myRequestsTableBody">
+                <tr>
+                  <td colspan="7" style="padding: 16px; text-align: center; color: var(--text-muted);">
+                    Loading borrowing requests...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/permissions.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/borrowing.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      // Require authenticated user
+      const authData = await requireRole([ROLES.ADMIN, ROLES.STAFF, ROLES.REQUESTER]);
+      if (!authData) return;
+
+      // Set min return date to tomorrow
+      const today = new Date();
+      today.setDate(today.getDate() + 1);
+      document.getElementById('expectedReturnDate').min = today.toISOString().split('T')[0];
+
+      await loadEquipmentDropdown();
+      await loadMyRequests();
+
+      // Handle borrowing form submission
+      const form = document.getElementById('borrowingForm');
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const alertBox = document.getElementById('requestAlert');
+        const submitBtn = document.getElementById('submitBtn');
+        const spinner = document.getElementById('submitSpinner');
+        const text = document.getElementById('submitText');
+
+        alertBox.style.display = 'none';
+        submitBtn.disabled = true;
+        spinner.style.display = 'inline-block';
+        text.textContent = 'Submitting...';
+
+        try {
+          const equipment_id = document.getElementById('equipmentSelect').value;
+          const quantity = document.getElementById('requestQuantity').value;
+          const expected_return_date = document.getElementById('expectedReturnDate').value;
+          const purpose = document.getElementById('requestPurpose').value;
+
+          await submitBorrowingRequest({ equipment_id, quantity, purpose, expected_return_date });
+
+          alertBox.className = 'alert alert-success';
+          alertBox.textContent = 'Borrowing request submitted successfully! Status is set to Pending for Administrator review.';
+          alertBox.style.display = 'block';
+
+          form.reset();
+          await loadEquipmentDropdown();
+          await loadMyRequests();
+        } catch (err) {
+          console.error("Submission failed:", err);
+          alertBox.className = 'alert alert-danger';
+          alertBox.textContent = err.message || 'Failed to submit request.';
+          alertBox.style.display = 'block';
+        } finally {
+          submitBtn.disabled = false;
+          spinner.style.display = 'none';
+          text.textContent = 'Submit Borrowing Request';
+        }
+      });
+    });
+
+    async function loadEquipmentDropdown() {
+      const select = document.getElementById('equipmentSelect');
+      try {
+        const availableList = await fetchAvailableEquipment();
+        if (availableList.length === 0) {
+          select.innerHTML = '<option value="">No equipment currently available for borrowing</option>';
+          select.disabled = true;
+          return;
+        }
+
+        select.disabled = false;
+        select.innerHTML = '<option value="">-- Select Available Equipment --</option>' +
+          availableList.map(item => `
+            <option value="${item.id}">
+              [${escapeHTML(item.equipment_code)}] ${escapeHTML(item.name)} (${item.quantity} available in ${escapeHTML(item.laboratory)})
+            </option>
+          `).join('');
+      } catch (err) {
+        select.innerHTML = '<option value="">Error loading equipment list</option>';
+      }
+    }
+
+    async function loadMyRequests() {
+      const tbody = document.getElementById('myRequestsTableBody');
+      try {
+        const requests = await fetchMyBorrowingRequests();
+        if (requests.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" style="padding: 16px; text-align: center; color: var(--text-muted);">No borrowing requests found.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = requests.map(req => {
+          const equipName = req.equipment ? `[${escapeHTML(req.equipment.equipment_code)}] ${escapeHTML(req.equipment.name)}` : 'Unknown Item';
+          let statusStyle = 'background: #fef3c7; color: #92400e;'; // Pending
+          if (req.status === 'Approved') statusStyle = 'background: #dcfce7; color: #166534;';
+          if (req.status === 'Rejected') statusStyle = 'background: #fee2e2; color: #991b1b;';
+          if (req.status === 'Released') statusStyle = 'background: #dbeafe; color: #1e40af;';
+
+          const reasonText = req.status === 'Rejected' && req.rejection_reason 
+            ? `<span style="color: var(--danger-color); font-size: 0.85rem;">Reason: ${escapeHTML(req.rejection_reason)}</span>` 
+            : '-';
+
+          return `
+            <tr style="border-bottom: 1px solid var(--border-color);">
+              <td style="padding: 12px; font-family: monospace;">${req.id.substring(0, 8)}...</td>
+              <td style="padding: 12px; font-weight: 600;">${equipName}</td>
+              <td style="padding: 12px;">${req.quantity}</td>
+              <td style="padding: 12px;">${escapeHTML(req.purpose)}</td>
+              <td style="padding: 12px;">${req.expected_return_date}</td>
+              <td style="padding: 12px;">
+                <span class="user-role-tag" style="${statusStyle}">${req.status}</span>
+              </td>
+              <td style="padding: 12px;">${reasonText}</td>
+            </tr>
+          `;
+        }).join('');
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="7" style="padding: 16px; text-align: center; color: var(--danger-color);">Error loading requests: ${escapeHTML(err.message)}</td></tr>`;
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Borrowing Transactions & Release - Laboratory Asset System</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h2>Lab Asset System</h2>
+        <p>Lab 4: Access & Approvals</p>
+      </div>
+      <ul class="sidebar-nav" id="sidebarNav"></ul>
+    </aside>
+
+    <div class="main-wrapper">
+      <header class="top-header">
+        <h1 class="page-title">Borrowing Transactions & Equipment Release</h1>
+        <div id="userProfileBadge" class="user-profile-badge"></div>
+      </header>
+
+      <main class="content-body">
+        <!-- Notification Alert Banner -->
+        <div id="borrowingAlert" class="alert" style="display: none;"></div>
+
+        <!-- Borrowing Transactions Card -->
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+            <h2 class="card-title" style="margin-bottom: 0;">Borrowing Transactions History</h2>
+            <div style="display: flex; gap: 8px;">
+              <select id="statusFilter" class="form-control" style="width: auto; padding: 6px 12px; font-size: 0.85rem;" onchange="loadBorrowingTransactions()">
+                <option value="ALL">All Statuses</option>
+                <option value="Approved">Approved (Ready for Release)</option>
+                <option value="Released">Released (Borrowed)</option>
+                <option value="Pending">Pending</option>
+                <option value="Returned">Returned</option>
+                <option value="Rejected">Rejected</option>
+              </select>
+              <button class="btn btn-secondary" onclick="loadBorrowingTransactions()">🔄 Refresh</button>
+            </div>
+          </div>
+
+          <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">
+            Authorized Laboratory Staff and Administrators may release approved equipment (BR-A4-04). Releasing equipment updates its inventory status to <strong>Borrowed</strong> (BR-A4-05).
+          </p>
+
+          <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+              <thead>
+                <tr style="background-color: var(--bg-color); text-align: left; border-bottom: 2px solid var(--border-color);">
+                  <th style="padding: 12px;">Request ID</th>
+                  <th style="padding: 12px;">Requester</th>
+                  <th style="padding: 12px;">Equipment</th>
+                  <th style="padding: 12px;">Qty</th>
+                  <th style="padding: 12px;">Purpose</th>
+                  <th style="padding: 12px;">Return Date</th>
+                  <th style="padding: 12px;">Status</th>
+                  <th style="padding: 12px; text-align: center;">Release Action</th>
+                </tr>
+              </thead>
+              <tbody id="transactionsTableBody">
+                <tr>
+                  <td colspan="8" style="padding: 16px; text-align: center; color: var(--text-muted);">
+                    Loading borrowing transactions...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/permissions.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/borrowing.js"></script>
+  <script>
+    let currentUserProfile = null;
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      const authData = await requireRole([ROLES.ADMIN, ROLES.STAFF, ROLES.REQUESTER]);
+      if (!authData) return;
+
+      currentUserProfile = authData.profile;
+      await loadBorrowingTransactions();
+    });
+
+    async function loadBorrowingTransactions() {
+      const tbody = document.getElementById('transactionsTableBody');
+      const filterValue = document.getElementById('statusFilter').value;
+
+      try {
+        let transactions = [];
+        if (currentUserProfile.role === ROLES.REQUESTER) {
+          transactions = await fetchMyBorrowingRequests();
+        } else {
+          transactions = await fetchAllBorrowingRequests();
+        }
+
+        if (filterValue !== 'ALL') {
+          transactions = transactions.filter(t => t.status === filterValue);
+        }
+
+        if (transactions.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="8" style="padding: 16px; text-align: center; color: var(--text-muted);">No borrowing transactions found matching criteria.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = transactions.map(t => {
+          const requesterName = t.requester ? escapeHTML(t.requester.full_name) : 'You';
+          const equipName = t.equipment ? `[${escapeHTML(t.equipment.equipment_code)}] ${escapeHTML(t.equipment.name)}` : 'Unknown Item';
+
+          let statusStyle = 'background: #fef3c7; color: #92400e;'; // Pending
+          if (t.status === 'Approved') statusStyle = 'background: #dcfce7; color: #166534;';
+          if (t.status === 'Rejected') statusStyle = 'background: #fee2e2; color: #991b1b;';
+          if (t.status === 'Released') statusStyle = 'background: #dbeafe; color: #1e40af;';
+          if (t.status === 'Returned') statusStyle = 'background: #f1f5f9; color: #334155;';
+
+          let actionCol = '-';
+
+          if (t.status === 'Approved') {
+            if (canRelease(currentUserProfile.role) || currentUserProfile.role === ROLES.STAFF) {
+              actionCol = `<button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.8rem;" onclick="handleRelease('${t.id}')">Release Equipment</button>`;
+            } else {
+              actionCol = `<span style="font-size: 0.8rem; color: var(--success-color); font-weight: 600;">Awaiting Release</span>`;
+            }
+          } else if (t.status === 'Released') {
+            if (currentUserProfile.role === ROLES.ADMIN || currentUserProfile.role === ROLES.STAFF) {
+              actionCol = `<a href="returns.html" class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem;">Return Item</a>`;
+            } else {
+              actionCol = `<span style="font-size: 0.8rem; color: #1e40af; font-weight: 600;">Released (Borrowed)</span>`;
+            }
+          } else if (t.status === 'Rejected') {
+            actionCol = `<span style="font-size: 0.8rem; color: var(--danger-color); font-weight: 600;">(BR-A4-07: Cannot Release)</span>`;
+          } else if (t.status === 'Pending') {
+            actionCol = `<span style="font-size: 0.8rem; color: var(--warning-color); font-weight: 600;">(BR-A4-04: Requires Approval)</span>`;
+          }
+
+          return `
+            <tr style="border-bottom: 1px solid var(--border-color);">
+              <td style="padding: 12px; font-family: monospace;">${t.id.substring(0, 8)}...</td>
+              <td style="padding: 12px; font-weight: 600;">${requesterName}</td>
+              <td style="padding: 12px;">${equipName}</td>
+              <td style="padding: 12px;">${t.quantity}</td>
+              <td style="padding: 12px;">${escapeHTML(t.purpose)}</td>
+              <td style="padding: 12px;">${t.expected_return_date}</td>
+              <td style="padding: 12px;">
+                <span class="user-role-tag" style="${statusStyle}">${t.status}</span>
+              </td>
+              <td style="padding: 12px; text-align: center;">${actionCol}</td>
+            </tr>
+          `;
+        }).join('');
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" style="padding: 16px; text-align: center; color: var(--danger-color);">Error loading transactions: ${escapeHTML(err.message)}</td></tr>`;
+      }
+    }
+
+    async function handleRelease(requestId) {
+      const alertBox = document.getElementById('borrowingAlert');
+      alertBox.style.display = 'none';
+
+      if (!confirm("Are you sure you want to RELEASE this equipment? Equipment status will change to Borrowed.")) return;
+
+      try {
+        const result = await releaseRequestRPC(requestId);
+        alertBox.className = 'alert alert-success';
+        alertBox.textContent = result.message || 'Equipment released successfully!';
+        alertBox.style.display = 'block';
+        await loadBorrowingTransactions();
+      } catch (err) {
+        console.error("Release error:", err);
+        alertBox.className = 'alert alert-danger';
+        alertBox.textContent = err.message || 'Failed to release equipment.';
+        alertBox.style.display = 'block';
+      }
+    }
+  </script>
+</body>
+</html>

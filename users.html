@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>User Management - Laboratory Asset & Approval System</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h2>Lab Asset System</h2>
+        <p>Lab 4: Access & Approvals</p>
+      </div>
+      <ul class="sidebar-nav" id="sidebarNav"></ul>
+    </aside>
+
+    <div class="main-wrapper">
+      <header class="top-header">
+        <h1 class="page-title">User Account & Role Management</h1>
+        <div id="userProfileBadge" class="user-profile-badge"></div>
+      </header>
+
+      <main class="content-body">
+        <!-- Notification Alert Banner -->
+        <div id="userAlert" class="alert" style="display: none;"></div>
+
+        <!-- User Accounts Table Card -->
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h2 class="card-title" style="margin-bottom: 0;">Registered System Accounts</h2>
+            <button class="btn btn-secondary" onclick="loadUsersList()">🔄 Refresh Accounts</button>
+          </div>
+
+          <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">
+            [ADMINISTRATOR ONLY] View registered user accounts and assign authorization roles (Administrator, Laboratory Staff, Requester). Changing roles logs an immutable audit event. You cannot modify your own role.
+          </p>
+
+          <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.88rem;">
+              <thead>
+                <tr style="background-color: var(--bg-color); text-align: left; border-bottom: 2px solid var(--border-color);">
+                  <th style="padding: 12px;">Profile ID</th>
+                  <th style="padding: 12px;">Full Name</th>
+                  <th style="padding: 12px;">Email Address</th>
+                  <th style="padding: 12px;">Current Role</th>
+                  <th style="padding: 12px;">Joined Date</th>
+                  <th style="padding: 12px; text-align: center;">Assign Role</th>
+                </tr>
+              </thead>
+              <tbody id="usersTableBody">
+                <tr>
+                  <td colspan="6" style="padding: 16px; text-align: center; color: var(--text-muted);">
+                    Loading user accounts...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/permissions.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/audit.js"></script>
+  <script src="js/users.js"></script>
+  <script>
+    let currentAdminUser = null;
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      // Require Administrator role strictly
+      const authData = await requireRole([ROLES.ADMIN]);
+      if (!authData) return;
+
+      currentAdminUser = authData.user;
+      await loadUsersList();
+    });
+
+    async function loadUsersList() {
+      const tbody = document.getElementById('usersTableBody');
+      try {
+        const users = await fetchUserProfiles();
+        if (users.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" style="padding: 16px; text-align: center; color: var(--text-muted);">No user profiles found.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = users.map(u => {
+          const isSelf = currentAdminUser && u.id === currentAdminUser.id;
+          const joinedDate = new Date(u.created_at).toLocaleDateString();
+
+          let actionCol = '';
+          if (isSelf) {
+            actionCol = `<span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">(Your Active Account)</span>`;
+          } else {
+            actionCol = `
+              <div style="display: flex; gap: 8px; justify-content: center; align-items: center;">
+                <select id="roleSelect_${u.id}" class="form-control" style="width: auto; padding: 4px 8px; font-size: 0.8rem;">
+                  <option value="requester" ${u.role === 'requester' ? 'selected' : ''}>Requester</option>
+                  <option value="laboratory_staff" ${u.role === 'laboratory_staff' ? 'selected' : ''}>Laboratory Staff</option>
+                  <option value="administrator" ${u.role === 'administrator' ? 'selected' : ''}>Administrator</option>
+                </select>
+                <button class="btn btn-primary" style="padding: 4px 10px; font-size: 0.8rem;" onclick="handleRoleChange('${u.id}')">Save Role</button>
+              </div>
+            `;
+          }
+
+          return `
+            <tr style="border-bottom: 1px solid var(--border-color);">
+              <td style="padding: 10px 12px; font-family: monospace;">${u.id.substring(0, 8)}...</td>
+              <td style="padding: 10px 12px; font-weight: 600;">${escapeHTML(u.full_name)}</td>
+              <td style="padding: 10px 12px;">${escapeHTML(u.email)}</td>
+              <td style="padding: 10px 12px;">
+                <span class="user-role-tag role-${u.role}">${escapeHTML(u.role.replace('_', ' '))}</span>
+              </td>
+              <td style="padding: 10px 12px;">${joinedDate}</td>
+              <td style="padding: 10px 12px; text-align: center;">${actionCol}</td>
+            </tr>
+          `;
+        }).join('');
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="6" style="padding: 16px; text-align: center; color: var(--danger-color);">Error loading users: ${escapeHTML(err.message)}</td></tr>`;
+      }
+    }
+
+    async function handleRoleChange(targetUserId) {
+      const alertBox = document.getElementById('userAlert');
+      const select = document.getElementById(`roleSelect_${targetUserId}`);
+      const newRole = select.value;
+
+      alertBox.style.display = 'none';
+
+      if (!confirm(`Are you sure you want to change this user's role to '${newRole}'?`)) return;
+
+      try {
+        const res = await updateUserRoleRPC(targetUserId, newRole);
+        alertBox.className = 'alert alert-success';
+        alertBox.textContent = res.message || 'User role updated successfully.';
+        alertBox.style.display = 'block';
+        await loadUsersList();
+      } catch (err) {
+        console.error("Role update failed:", err);
+        alertBox.className = 'alert alert-danger';
+        alertBox.textContent = err.message || 'Failed to update user role.';
+        alertBox.style.display = 'block';
+      }
+    }
+  </script>
+</body>
+</html>

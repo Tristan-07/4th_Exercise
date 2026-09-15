@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - Role-Based Asset Transaction & Approval Management</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="auth-page">
+
+  <div class="auth-card">
+    <div class="auth-header">
+      <h1>Role-Based Asset Transaction and Approval Management</h1>
+      <p>Laboratory 4 — Access Control & Approvals</p>
+    </div>
+
+    <div id="errorMessage" class="alert alert-danger" role="alert"></div>
+
+    <form id="loginForm">
+      <div class="form-group">
+        <label for="email">Email Address</label>
+        <input type="email" id="email" class="form-control" placeholder="user@lab.edu" required autocomplete="email">
+      </div>
+
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" class="form-control" placeholder="••••••••" required autocomplete="current-password">
+      </div>
+
+      <button type="submit" id="loginBtn" class="btn btn-primary" style="width: 100%; margin-top: 10px;">
+        <span id="btnSpinner" class="spinner" style="display: none;"></span>
+        <span id="btnText">Sign In</span>
+      </button>
+    </form>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/permissions.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      // Check if user is already logged in
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (session) {
+        window.location.href = 'dashboard.html';
+        return;
+      }
+
+      const loginForm = document.getElementById('loginForm');
+      const emailInput = document.getElementById('email');
+      const passwordInput = document.getElementById('password');
+      const loginBtn = document.getElementById('loginBtn');
+      const btnSpinner = document.getElementById('btnSpinner');
+      const btnText = document.getElementById('btnText');
+      const errorMessage = document.getElementById('errorMessage');
+
+      loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        // Hide error message & show loading state
+        errorMessage.style.display = 'none';
+        errorMessage.textContent = '';
+        loginBtn.disabled = true;
+        btnSpinner.style.display = 'inline-block';
+        btnText.textContent = 'Authenticating...';
+
+        try {
+          const { user, profile } = await loginUser(emailInput.value, passwordInput.value);
+          window.location.href = 'dashboard.html';
+        } catch (err) {
+          console.error("Login failed:", err);
+          errorMessage.textContent = err.message || 'Invalid email or password. Please try again.';
+          errorMessage.style.display = 'block';
+          
+          loginBtn.disabled = false;
+          btnSpinner.style.display = 'none';
+          btnText.textContent = 'Sign In';
+        }
+      });
+    });
+  </script>
+</body>
+</html>

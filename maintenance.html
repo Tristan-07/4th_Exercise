@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Equipment Maintenance - Laboratory Asset System</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h2>Lab Asset System</h2>
+        <p>Lab 4: Access & Approvals</p>
+      </div>
+      <ul class="sidebar-nav" id="sidebarNav"></ul>
+    </aside>
+
+    <div class="main-wrapper">
+      <header class="top-header">
+        <h1 class="page-title">Equipment Maintenance Management</h1>
+        <div id="userProfileBadge" class="user-profile-badge"></div>
+      </header>
+
+      <main class="content-body">
+        <!-- Alert Notification -->
+        <div id="maintAlert" class="alert" style="display: none;"></div>
+
+        <!-- Submit Maintenance Request Form Card (Staff Only) -->
+        <div id="submitMaintenanceCard" class="card" style="display: none;">
+          <h2 class="card-title">Submit Equipment Maintenance Request</h2>
+          <form id="maintForm">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px;">
+              <div class="form-group">
+                <label for="maintEquipSelect">Select Equipment</label>
+                <select id="maintEquipSelect" class="form-control" required>
+                  <option value="">Loading equipment list...</option>
+                </select>
+              </div>
+
+              <div class="form-group" style="grid-column: span 2;">
+                <label for="maintDescription">Issue / Problem Description</label>
+                <textarea id="maintDescription" class="form-control" rows="2" placeholder="Describe the defect, damage, or required service..." required></textarea>
+              </div>
+            </div>
+
+            <button type="submit" id="submitMaintBtn" class="btn btn-primary" style="margin-top: 12px;">
+              Submit Maintenance Request
+            </button>
+          </form>
+        </div>
+
+        <!-- Maintenance Requests Table Card -->
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h2 class="card-title" style="margin-bottom: 0;">Maintenance Logs & Status Queue</h2>
+            <button class="btn btn-secondary" onclick="loadMaintenanceLogs()">🔄 Refresh Queue</button>
+          </div>
+
+          <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">
+            Items placed under <strong>Maintenance</strong> status cannot be requested or released for borrowing (BR-A4-09). Administrators review and resolve maintenance logs.
+          </p>
+
+          <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.88rem;">
+              <thead>
+                <tr style="background-color: var(--bg-color); text-align: left; border-bottom: 2px solid var(--border-color);">
+                  <th style="padding: 12px;">Log ID</th>
+                  <th style="padding: 12px;">Equipment</th>
+                  <th style="padding: 12px;">Reported By</th>
+                  <th style="padding: 12px;">Issue Description</th>
+                  <th style="padding: 12px;">Status</th>
+                  <th style="padding: 12px;">Resolution / Inspector</th>
+                  <th style="padding: 12px; text-align: center;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="maintTableBody">
+                <tr>
+                  <td colspan="7" style="padding: 16px; text-align: center; color: var(--text-muted);">
+                    Loading maintenance requests...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Complete Maintenance Modal -->
+  <div id="completeMaintModal" class="access-denied-overlay" style="display: none;">
+    <div class="access-denied-box" style="text-align: left; max-width: 480px;">
+      <h3 style="color: var(--primary-color); margin-bottom: 8px;">Complete Equipment Maintenance</h3>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">
+        Specify post-service equipment status and resolution notes:
+      </p>
+      <input type="hidden" id="completeMaintId">
+      
+      <div class="form-group">
+        <label for="targetStatusSelect">Post-Maintenance Status</label>
+        <select id="targetStatusSelect" class="form-control" required>
+          <option value="Available">Available (Restores item to Available catalog)</option>
+          <option value="Unserviceable">Unserviceable (Item retired/decommissioned)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="maintNotesInput">Resolution / Service Notes</label>
+        <textarea id="maintNotesInput" class="form-control" rows="3" placeholder="Enter repairs completed or inspection summary..."></textarea>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px;">
+        <button class="btn btn-secondary" onclick="closeCompleteModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="confirmCompleteMaintenance()">Confirm Completion</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/permissions.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/borrowing.js"></script>
+  <script src="js/maintenance.js"></script>
+  <script>
+    let currentProfile = null;
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      const authData = await requireRole([ROLES.ADMIN, ROLES.STAFF]);
+      if (!authData) return;
+
+      currentProfile = authData.profile;
+      const form = document.getElementById('maintForm');
+      if (currentProfile.role === ROLES.STAFF) {
+        document.getElementById('submitMaintenanceCard').style.display = 'block';
+        await populateEquipmentDropdown();
+      }
+      await loadMaintenanceLogs();
+
+      if (currentProfile.role === ROLES.STAFF) form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const alertBox = document.getElementById('maintAlert');
+        const equipId = document.getElementById('maintEquipSelect').value;
+        const desc = document.getElementById('maintDescription').value;
+
+        alertBox.style.display = 'none';
+
+        try {
+          const res = await submitMaintenanceRequestRPC(equipId, desc);
+          alertBox.className = 'alert alert-success';
+          alertBox.textContent = res.message || 'Maintenance request submitted.';
+          alertBox.style.display = 'block';
+          form.reset();
+          await loadMaintenanceLogs();
+        } catch (err) {
+          alertBox.className = 'alert alert-danger';
+          alertBox.textContent = err.message || 'Failed to submit request.';
+          alertBox.style.display = 'block';
+        }
+      });
+    });
+
+    async function populateEquipmentDropdown() {
+      const select = document.getElementById('maintEquipSelect');
+      try {
+        const list = await fetchEquipmentList();
+        select.innerHTML = '<option value="">-- Select Equipment --</option>' +
+          list.map(e => `<option value="${e.id}">[${escapeHTML(e.equipment_code)}] ${escapeHTML(e.name)} (${escapeHTML(e.status)})</option>`).join('');
+      } catch (err) {
+        select.innerHTML = '<option value="">Error loading list</option>';
+      }
+    }
+
+    async function loadMaintenanceLogs() {
+      const tbody = document.getElementById('maintTableBody');
+      try {
+        const logs = await fetchMaintenanceRequests();
+        if (logs.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" style="padding: 16px; text-align: center; color: var(--text-muted);">No maintenance requests found.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = logs.map(m => {
+          const equipStr = m.equipment ? `[${escapeHTML(m.equipment.equipment_code)}] ${escapeHTML(m.equipment.name)}` : 'Unknown';
+          const reporterStr = m.reporter ? escapeHTML(m.reporter.full_name) : 'Unknown';
+          const resolverStr = m.resolver ? escapeHTML(m.resolver.full_name) : '-';
+
+          let statusStyle = 'background: #fef3c7; color: #92400e;'; // Pending
+          if (m.status === 'In_Maintenance') statusStyle = 'background: #fee2e2; color: #991b1b;';
+          if (m.status === 'Completed') statusStyle = 'background: #dcfce7; color: #166534;';
+
+          let actionCol = '-';
+          if (currentProfile.role === ROLES.ADMIN) {
+            if (m.status === 'Pending') {
+              actionCol = `<button class="btn btn-primary" style="padding: 4px 8px; font-size: 0.8rem;" onclick="handleStartMaint('${m.id}')">Start Maintenance</button>`;
+            } else if (m.status === 'In_Maintenance') {
+              actionCol = `<button class="btn btn-secondary" style="padding: 4px 8px; font-size: 0.8rem;" onclick="openCompleteModal('${m.id}')">Complete</button>`;
+            }
+          }
+
+          return `
+            <tr style="border-bottom: 1px solid var(--border-color);">
+              <td style="padding: 10px 12px; font-family: monospace;">${m.id.substring(0, 8)}...</td>
+              <td style="padding: 10px 12px; font-weight: 600;">${equipStr}</td>
+              <td style="padding: 10px 12px;">${reporterStr}</td>
+              <td style="padding: 10px 12px;">${escapeHTML(m.issue_description)}</td>
+              <td style="padding: 10px 12px;">
+                <span class="user-role-tag" style="${statusStyle}">${m.status}</span>
+              </td>
+              <td style="padding: 10px 12px; font-size: 0.8rem;">${m.resolution_notes ? escapeHTML(m.resolution_notes) : '-'} (${resolverStr})</td>
+              <td style="padding: 10px 12px; text-align: center;">${actionCol}</td>
+            </tr>
+          `;
+        }).join('');
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="7" style="padding: 16px; text-align: center; color: var(--danger-color);">Error loading logs: ${escapeHTML(err.message)}</td></tr>`;
+      }
+    }
+
+    async function handleStartMaint(maintId) {
+      const alertBox = document.getElementById('maintAlert');
+      if (!confirm("Start maintenance on this equipment? Equipment status will be set to Maintenance (BR-A4-09).")) return;
+
+      try {
+        const res = await startMaintenanceRPC(maintId);
+        alertBox.className = 'alert alert-success';
+        alertBox.textContent = res.message || 'Started maintenance.';
+        alertBox.style.display = 'block';
+        await loadMaintenanceLogs();
+      } catch (err) {
+        alertBox.className = 'alert alert-danger';
+        alertBox.textContent = err.message || 'Failed to start maintenance.';
+        alertBox.style.display = 'block';
+      }
+    }
+
+    function openCompleteModal(maintId) {
+      document.getElementById('completeMaintId').value = maintId;
+      document.getElementById('maintNotesInput').value = '';
+      document.getElementById('completeMaintModal').style.display = 'flex';
+    }
+
+    function closeCompleteModal() {
+      document.getElementById('completeMaintModal').style.display = 'none';
+    }
+
+    async function confirmCompleteMaintenance() {
+      const maintId = document.getElementById('completeMaintId').value;
+      const targetStatus = document.getElementById('targetStatusSelect').value;
+      const notes = document.getElementById('maintNotesInput').value;
+      const alertBox = document.getElementById('maintAlert');
+
+      closeCompleteModal();
+
+      try {
+        const res = await completeMaintenanceRPC(maintId, targetStatus, notes);
+        alertBox.className = 'alert alert-success';
+        alertBox.textContent = res.message || 'Maintenance completed.';
+        alertBox.style.display = 'block';
+        await loadMaintenanceLogs();
+      } catch (err) {
+        alertBox.className = 'alert alert-danger';
+        alertBox.textContent = err.message || 'Failed to complete maintenance.';
+        alertBox.style.display = 'block';
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Equipment Catalog - Laboratory Asset System</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h2>Lab Asset System</h2>
+        <p>Lab 4: Access & Approvals</p>
+      </div>
+      <ul class="sidebar-nav" id="sidebarNav"></ul>
+    </aside>
+
+    <div class="main-wrapper">
+      <header class="top-header">
+        <h1 class="page-title">Laboratory Equipment Catalog & Management</h1>
+        <div id="userProfileBadge" class="user-profile-badge"></div>
+      </header>
+
+      <main class="content-body">
+        <!-- Notification Alert Banner -->
+        <div id="equipAlert" class="alert" style="display: none;"></div>
+
+        <!-- Equipment Inventory Table Card -->
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+            <h2 class="card-title" style="margin-bottom: 0;">Equipment Inventory</h2>
+            
+            <div style="display: flex; gap: 10px;">
+              <button id="addEquipBtn" class="btn btn-primary" style="display: none;" onclick="openAddEquipModal()">+ Add New Equipment</button>
+              <button class="btn btn-secondary" onclick="loadEquipmentCatalog()">🔄 Refresh Inventory</button>
+            </div>
+          </div>
+
+          <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">
+            Items with status <strong>Available</strong> may be requested for borrowing. Items under <strong>Maintenance</strong> or <strong>Borrowed</strong> are unavailable (BR-A4-01, BR-A4-09).
+          </p>
+
+          <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.88rem;">
+              <thead>
+                <tr style="background-color: var(--bg-color); text-align: left; border-bottom: 2px solid var(--border-color);">
+                  <th style="padding: 12px;">Code</th>
+                  <th style="padding: 12px;">Equipment Name</th>
+                  <th style="padding: 12px;">Category</th>
+                  <th style="padding: 12px;">Qty</th>
+                  <th style="padding: 12px;">Condition</th>
+                  <th style="padding: 12px;">Laboratory</th>
+                  <th style="padding: 12px;">Status</th>
+                  <th style="padding: 12px; text-align: center;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="equipmentTableBody">
+                <tr>
+                  <td colspan="8" style="padding: 16px; text-align: center; color: var(--text-muted);">
+                    Loading laboratory equipment...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Add / Edit Equipment Modal -->
+  <div id="equipModal" class="access-denied-overlay" style="display: none;">
+    <div class="access-denied-box" style="text-align: left; max-width: 520px;">
+      <h3 id="modalTitle" style="color: var(--primary-color); margin-bottom: 12px;">Add New Equipment</h3>
+      <form id="equipModalForm">
+        <input type="hidden" id="editEquipId">
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label for="eqCodeInput">Equipment Code</label>
+            <input type="text" id="eqCodeInput" class="form-control" placeholder="e.g. LAP-002" required>
+          </div>
+
+          <div class="form-group">
+            <label for="eqNameInput">Equipment Name</label>
+            <input type="text" id="eqNameInput" class="form-control" placeholder="e.g. HP ProBook 450" required>
+          </div>
+
+          <div class="form-group">
+            <label for="eqCategoryInput">Category</label>
+            <input type="text" id="eqCategoryInput" class="form-control" placeholder="e.g. Computers" required>
+          </div>
+
+          <div class="form-group">
+            <label for="eqQuantityInput">Quantity</label>
+            <input type="number" id="eqQuantityInput" class="form-control" value="1" min="1" required>
+          </div>
+
+          <div class="form-group">
+            <label for="eqConditionSelect">Condition</label>
+            <select id="eqConditionSelect" class="form-control" required>
+              <option value="Good">Good</option>
+              <option value="Excellent">Excellent</option>
+              <option value="Fair">Fair</option>
+              <option value="Damaged">Damaged</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="eqLabInput">Laboratory Location</label>
+            <input type="text" id="eqLabInput" class="form-control" placeholder="e.g. Computer Lab A" required>
+          </div>
+
+          <div class="form-group" id="statusGroup" style="grid-column: span 2; display: none;">
+            <label for="eqStatusSelect">Status</label>
+            <select id="eqStatusSelect" class="form-control">
+              <option value="Available">Available</option>
+              <option value="Borrowed">Borrowed</option>
+              <option value="Maintenance">Maintenance</option>
+              <option value="Damaged">Damaged</option>
+              <option value="Unserviceable">Unserviceable</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px;">
+          <button type="button" class="btn btn-secondary" onclick="closeEquipModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Equipment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/permissions.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/borrowing.js"></script>
+  <script src="js/equipment-mgmt.js"></script>
+  <script>
+    let currentProfile = null;
+    let equipmentCache = [];
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      const authData = await requireRole([ROLES.ADMIN, ROLES.STAFF, ROLES.REQUESTER]);
+      if (!authData) return;
+
+      currentProfile = authData.profile;
+
+      if (currentProfile.role === ROLES.ADMIN) {
+        document.getElementById('addEquipBtn').style.display = 'inline-block';
+      }
+
+      await loadEquipmentCatalog();
+
+      const form = document.getElementById('equipModalForm');
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const alertBox = document.getElementById('equipAlert');
+        const editId = document.getElementById('editEquipId').value;
+        const code = document.getElementById('eqCodeInput').value.trim();
+        const name = document.getElementById('eqNameInput').value.trim();
+        const category = document.getElementById('eqCategoryInput').value.trim();
+        const quantity = document.getElementById('eqQuantityInput').value;
+        const condition = document.getElementById('eqConditionSelect').value;
+        const lab = document.getElementById('eqLabInput').value.trim();
+        const status = document.getElementById('eqStatusSelect').value;
+
+        closeEquipModal();
+        alertBox.style.display = 'none';
+
+        try {
+          if (editId) {
+            await updateEquipmentRPC(editId, code, name, category, quantity, condition, lab, status);
+            alertBox.className = 'alert alert-success';
+            alertBox.textContent = 'Equipment updated successfully.';
+          } else {
+            await createEquipmentRPC(code, name, category, quantity, condition, lab);
+            alertBox.className = 'alert alert-success';
+            alertBox.textContent = 'Equipment created successfully.';
+          }
+          alertBox.style.display = 'block';
+          await loadEquipmentCatalog();
+        } catch (err) {
+          console.error("Equipment save error:", err);
+          alertBox.className = 'alert alert-danger';
+          alertBox.textContent = err.message || 'Failed to save equipment.';
+          alertBox.style.display = 'block';
+        }
+      });
+    });
+
+    async function loadEquipmentCatalog() {
+      const tbody = document.getElementById('equipmentTableBody');
+      try {
+        equipmentCache = await fetchEquipmentList();
+        if (equipmentCache.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="8" style="padding: 16px; text-align: center; color: var(--text-muted);">No equipment found in inventory.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = equipmentCache.map(item => {
+          let statusStyle = 'background: #dcfce7; color: #166534;'; // Available
+          if (item.status === 'Borrowed') statusStyle = 'background: #dbeafe; color: #1e40af;';
+          if (item.status === 'Maintenance') statusStyle = 'background: #fef3c7; color: #92400e;';
+          if (item.status === 'Damaged' || item.status === 'Unserviceable') statusStyle = 'background: #fee2e2; color: #991b1b;';
+
+          let actionButtons = '';
+          if (currentProfile.role === ROLES.ADMIN) {
+            actionButtons = `
+              <div style="display: flex; gap: 6px; justify-content: center;">
+                <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 0.78rem;" onclick="openEditEquipModal('${item.id}')">Edit</button>
+                <button class="btn btn-danger" style="padding: 4px 8px; font-size: 0.78rem;" onclick="handleDeleteEquip('${item.id}')">Delete</button>
+              </div>
+            `;
+          } else {
+            actionButtons = item.status === 'Available'
+              ? `<a href="requests.html" class="btn btn-primary" style="padding: 4px 10px; font-size: 0.78rem;">Request Item</a>`
+              : `<button class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.78rem;" disabled>Unavailable</button>`;
+          }
+
+          return `
+            <tr style="border-bottom: 1px solid var(--border-color);">
+              <td style="padding: 10px 12px; font-family: monospace; font-weight: 600;">${escapeHTML(item.equipment_code)}</td>
+              <td style="padding: 10px 12px; font-weight: 600;">${escapeHTML(item.name)}</td>
+              <td style="padding: 10px 12px;">${escapeHTML(item.category)}</td>
+              <td style="padding: 10px 12px;">${item.quantity}</td>
+              <td style="padding: 10px 12px;">${escapeHTML(item.condition)}</td>
+              <td style="padding: 10px 12px;">${escapeHTML(item.laboratory)}</td>
+              <td style="padding: 10px 12px;">
+                <span class="user-role-tag" style="${statusStyle}">${escapeHTML(item.status)}</span>
+              </td>
+              <td style="padding: 10px 12px; text-align: center;">${actionButtons}</td>
+            </tr>
+          `;
+        }).join('');
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" style="padding: 16px; text-align: center; color: var(--danger-color);">Error loading equipment catalog: ${escapeHTML(err.message)}</td></tr>`;
+      }
+    }
+
+    function openAddEquipModal() {
+      document.getElementById('editEquipId').value = '';
+      document.getElementById('modalTitle').textContent = 'Add New Equipment';
+      document.getElementById('eqCodeInput').value = '';
+      document.getElementById('eqNameInput').value = '';
+      document.getElementById('eqCategoryInput').value = '';
+      document.getElementById('eqQuantityInput').value = '1';
+      document.getElementById('eqConditionSelect').value = 'Good';
+      document.getElementById('eqLabInput').value = '';
+      document.getElementById('statusGroup').style.display = 'none';
+      document.getElementById('equipModal').style.display = 'flex';
+    }
+
+    function openEditEquipModal(id) {
+      const item = equipmentCache.find(e => e.id === id);
+      if (!item) return;
+
+      document.getElementById('editEquipId').value = item.id;
+      document.getElementById('modalTitle').textContent = 'Edit Equipment Details';
+      document.getElementById('eqCodeInput').value = item.equipment_code;
+      document.getElementById('eqNameInput').value = item.name;
+      document.getElementById('eqCategoryInput').value = item.category;
+      document.getElementById('eqQuantityInput').value = item.quantity;
+      document.getElementById('eqConditionSelect').value = item.condition;
+      document.getElementById('eqLabInput').value = item.laboratory;
+      document.getElementById('eqStatusSelect').value = item.status;
+      document.getElementById('statusGroup').style.display = 'block';
+      document.getElementById('equipModal').style.display = 'flex';
+    }
+
+    function closeEquipModal() {
+      document.getElementById('equipModal').style.display = 'none';
+    }
+
+    async function handleDeleteEquip(id) {
+      const alertBox = document.getElementById('equipAlert');
+      if (!confirm("Are you sure you want to delete this equipment item? Active borrowing transactions will block deletion.")) return;
+
+      alertBox.style.display = 'none';
+
+      try {
+        const res = await deleteEquipmentRPC(id);
+        alertBox.className = 'alert alert-success';
+        alertBox.textContent = res.message || 'Equipment deleted successfully.';
+        alertBox.style.display = 'block';
+        await loadEquipmentCatalog();
+      } catch (err) {
+        console.error("Delete equipment error:", err);
+        alertBox.className = 'alert alert-danger';
+        alertBox.textContent = err.message || 'Failed to delete equipment.';
+        alertBox.style.display = 'block';
+      }
+    }
+  </script>
+</body>
+</html>

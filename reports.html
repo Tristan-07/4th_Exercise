@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System Reports - Laboratory Asset System</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h2>Lab Asset System</h2>
+        <p>Lab 4: Access & Approvals</p>
+      </div>
+      <ul class="sidebar-nav" id="sidebarNav"></ul>
+    </aside>
+
+    <div class="main-wrapper">
+      <header class="top-header">
+        <h1 class="page-title">Reports & System Analytics</h1>
+        <div id="userProfileBadge" class="user-profile-badge"></div>
+      </header>
+
+      <main class="content-body">
+        <!-- Report Overview Card -->
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h2 class="card-title" style="margin-bottom: 0;">Real-Time System Metrics</h2>
+            <button class="btn btn-secondary" onclick="loadReportsData()">🔄 Refresh Metrics</button>
+          </div>
+          <p style="color: var(--text-muted); font-size: 0.9rem;">
+            [ADMINISTRATOR ONLY] Live reporting generated directly from Supabase PostgreSQL database records.
+          </p>
+        </div>
+
+        <!-- Inventory Metrics Grid -->
+        <div class="card">
+          <h3 class="card-title">1. Equipment Asset Inventory Breakdown</h3>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-top: 16px;">
+            <div style="background: var(--bg-color); padding: 16px; border-radius: 6px; border: 1px solid var(--border-color); text-align: center;">
+              <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">TOTAL ASSETS</span>
+              <p id="repTotalEquip" style="font-size: 1.8rem; font-weight: 700; margin-top: 4px; color: var(--primary-color);">-</p>
+            </div>
+            <div style="background: var(--bg-color); padding: 16px; border-radius: 6px; border: 1px solid var(--border-color); text-align: center;">
+              <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">AVAILABLE</span>
+              <p id="repAvailableEquip" style="font-size: 1.8rem; font-weight: 700; margin-top: 4px; color: var(--success-color);">-</p>
+            </div>
+            <div style="background: var(--bg-color); padding: 16px; border-radius: 6px; border: 1px solid var(--border-color); text-align: center;">
+              <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">BORROWED</span>
+              <p id="repBorrowedEquip" style="font-size: 1.8rem; font-weight: 700; margin-top: 4px; color: #1e40af;">-</p>
+            </div>
+            <div style="background: var(--bg-color); padding: 16px; border-radius: 6px; border: 1px solid var(--border-color); text-align: center;">
+              <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">MAINTENANCE</span>
+              <p id="repMaintEquip" style="font-size: 1.8rem; font-weight: 700; margin-top: 4px; color: var(--warning-color);">-</p>
+            </div>
+            <div style="background: var(--bg-color); padding: 16px; border-radius: 6px; border: 1px solid var(--border-color); text-align: center;">
+              <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">DAMAGED / UNFIT</span>
+              <p id="repDamagedEquip" style="font-size: 1.8rem; font-weight: 700; margin-top: 4px; color: var(--danger-color);">-</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Borrowing Workflow Metrics Grid -->
+        <div class="card">
+          <h3 class="card-title">2. Borrowing Request Workflow Summary</h3>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-top: 16px;">
+            <div style="background: var(--bg-color); padding: 16px; border-radius: 6px; border: 1px solid var(--border-color); text-align: center;">
+              <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">TOTAL REQUESTS</span>
+              <p id="repTotalReq" style="font-size: 1.8rem; font-weight: 700; margin-top: 4px; color: var(--primary-color);">-</p>
+            </div>
+            <div style="background: var(--bg-color); padding: 16px; border-radius: 6px; border: 1px solid var(--border-color); text-align: center;">
+              <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">PENDING</span>
+              <p id="repPendingReq" style="font-size: 1.8rem; font-weight: 700; margin-top: 4px; color: #d97706;">-</p>
+            </div>
+            <div style="background: var(--bg-color); padding: 16px; border-radius: 6px; border: 1px solid var(--border-color); text-align: center;">
+              <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">APPROVED</span>
+              <p id="repApprovedReq" style="font-size: 1.8rem; font-weight: 700; margin-top: 4px; color: var(--success-color);">-</p>
+            </div>
+            <div style="background: var(--bg-color); padding: 16px; border-radius: 6px; border: 1px solid var(--border-color); text-align: center;">
+              <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">REJECTED</span>
+              <p id="repRejectedReq" style="font-size: 1.8rem; font-weight: 700; margin-top: 4px; color: var(--danger-color);">-</p>
+            </div>
+            <div style="background: var(--bg-color); padding: 16px; border-radius: 6px; border: 1px solid var(--border-color); text-align: center;">
+              <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">RELEASED</span>
+              <p id="repReleasedReq" style="font-size: 1.8rem; font-weight: 700; margin-top: 4px; color: #1e40af;">-</p>
+            </div>
+            <div style="background: var(--bg-color); padding: 16px; border-radius: 6px; border: 1px solid var(--border-color); text-align: center;">
+              <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">RETURNED</span>
+              <p id="repReturnedReq" style="font-size: 1.8rem; font-weight: 700; margin-top: 4px; color: #0f766e;">-</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- User Accounts Distribution Grid -->
+        <div class="card">
+          <h3 class="card-title">3. User Role Authorization Distribution</h3>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 16px;">
+            <div style="background: var(--bg-color); padding: 16px; border-radius: 6px; border: 1px solid var(--border-color); text-align: center;">
+              <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">REGISTERED USERS</span>
+              <p id="repTotalUsers" style="font-size: 1.8rem; font-weight: 700; margin-top: 4px; color: var(--primary-color);">-</p>
+            </div>
+            <div style="background: var(--bg-color); padding: 16px; border-radius: 6px; border: 1px solid var(--border-color); text-align: center;">
+              <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">ADMINISTRATORS</span>
+              <p id="repAdminUsers" style="font-size: 1.8rem; font-weight: 700; margin-top: 4px; color: #1e40af;">-</p>
+            </div>
+            <div style="background: var(--bg-color); padding: 16px; border-radius: 6px; border: 1px solid var(--border-color); text-align: center;">
+              <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">LABORATORY STAFF</span>
+              <p id="repStaffUsers" style="font-size: 1.8rem; font-weight: 700; margin-top: 4px; color: #0f766e;">-</p>
+            </div>
+            <div style="background: var(--bg-color); padding: 16px; border-radius: 6px; border: 1px solid var(--border-color); text-align: center;">
+              <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">REQUESTERS</span>
+              <p id="repRequesterUsers" style="font-size: 1.8rem; font-weight: 700; margin-top: 4px; color: #92400e;">-</p>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/permissions.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/reports.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      // Require Administrator role strictly
+      const authData = await requireRole([ROLES.ADMIN]);
+      if (!authData) return;
+
+      await loadReportsData();
+    });
+
+    async function loadReportsData() {
+      try {
+        const metrics = await fetchSystemMetrics();
+
+        // Equipment
+        document.getElementById('repTotalEquip').textContent = metrics.totalEquipment;
+        document.getElementById('repAvailableEquip').textContent = metrics.availableEquipment;
+        document.getElementById('repBorrowedEquip').textContent = metrics.borrowedEquipment;
+        document.getElementById('repMaintEquip').textContent = metrics.maintenanceEquipment;
+        document.getElementById('repDamagedEquip').textContent = metrics.damagedEquipment;
+
+        // Borrowing
+        document.getElementById('repTotalReq').textContent = metrics.totalRequests;
+        document.getElementById('repPendingReq').textContent = metrics.pendingRequests;
+        document.getElementById('repApprovedReq').textContent = metrics.approvedRequests;
+        document.getElementById('repRejectedReq').textContent = metrics.rejectedRequests;
+        document.getElementById('repReleasedReq').textContent = metrics.releasedRequests;
+        document.getElementById('repReturnedReq').textContent = metrics.returnedRequests;
+
+        // Users
+        document.getElementById('repTotalUsers').textContent = metrics.totalUsers;
+        document.getElementById('repAdminUsers').textContent = metrics.adminUsers;
+        document.getElementById('repStaffUsers').textContent = metrics.staffUsers;
+        document.getElementById('repRequesterUsers').textContent = metrics.requesterUsers;
+      } catch (err) {
+        console.error("Error loading reports data:", err);
+      }
+    }
+  </script>
+</body>
+</html>

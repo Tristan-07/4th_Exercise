@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Returns Processing - Laboratory Asset & Approval System</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h2>Lab Asset System</h2>
+        <p>Lab 4: Access & Approvals</p>
+      </div>
+      <ul class="sidebar-nav" id="sidebarNav"></ul>
+    </aside>
+
+    <div class="main-wrapper">
+      <header class="top-header">
+        <h1 class="page-title">Equipment Returns Processing</h1>
+        <div id="userProfileBadge" class="user-profile-badge"></div>
+      </header>
+
+      <main class="content-body">
+        <!-- Notification Alert Banner -->
+        <div id="returnsAlert" class="alert" style="display: none;"></div>
+
+        <!-- Released Transactions Queue Card -->
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h2 class="card-title" style="margin-bottom: 0;">Released Equipment Return Queue</h2>
+            <button class="btn btn-secondary" onclick="loadReleasedQueue()">🔄 Refresh Queue</button>
+          </div>
+          
+          <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">
+            Process returned items. Returning equipment in <strong>Good</strong> condition restores inventory to <strong>Available</strong>. Equipment returned <strong>Damaged</strong> will be marked as <strong>Damaged</strong> (BR-A4-06). Transactions cannot be returned twice (BR-A4-08).
+          </p>
+
+          <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+              <thead>
+                <tr style="background-color: var(--bg-color); text-align: left; border-bottom: 2px solid var(--border-color);">
+                  <th style="padding: 12px;">Request ID</th>
+                  <th style="padding: 12px;">Requester</th>
+                  <th style="padding: 12px;">Equipment</th>
+                  <th style="padding: 12px;">Qty</th>
+                  <th style="padding: 12px;">Purpose</th>
+                  <th style="padding: 12px;">Expected Return</th>
+                  <th style="padding: 12px;">Status</th>
+                  <th style="padding: 12px; text-align: center;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="returnsTableBody">
+                <tr>
+                  <td colspan="8" style="padding: 16px; text-align: center; color: var(--text-muted);">
+                    Loading released transactions...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Return Processing Modal -->
+  <div id="returnModal" class="access-denied-overlay" style="display: none;">
+    <div class="access-denied-box" style="text-align: left; max-width: 480px;">
+      <h3 style="color: var(--primary-color); margin-bottom: 8px;">Process Equipment Return</h3>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">
+        Inspect returned item and record post-return condition:
+      </p>
+      <input type="hidden" id="returnRequestId">
+      
+      <div class="form-group">
+        <label for="returnConditionSelect">Equipment Condition</label>
+        <select id="returnConditionSelect" class="form-control" required>
+          <option value="Good">Good (Restores Equipment to Available)</option>
+          <option value="Damaged">Damaged (Marks Equipment as Damaged)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="returnRemarksInput">Return Remarks / Inspection Notes</label>
+        <textarea id="returnRemarksInput" class="form-control" rows="3" placeholder="Enter optional notes regarding equipment condition..."></textarea>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px;">
+        <button class="btn btn-secondary" onclick="closeReturnModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="confirmReturnProcess()">Confirm Return</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/permissions.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/borrowing.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      // Require Administrator or Laboratory Staff role
+      const authData = await requireRole([ROLES.ADMIN, ROLES.STAFF]);
+      if (!authData) return;
+
+      await loadReleasedQueue();
+    });
+
+    async function loadReleasedQueue() {
+      const tbody = document.getElementById('returnsTableBody');
+      try {
+        const releasedRequests = await fetchReleasedRequests();
+        if (releasedRequests.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="8" style="padding: 16px; text-align: center; color: var(--text-muted);">No released equipment currently pending return.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = releasedRequests.map(req => {
+          const requesterName = req.requester ? escapeHTML(req.requester.full_name) : 'Unknown User';
+          const equipName = req.equipment ? `[${escapeHTML(req.equipment.equipment_code)}] ${escapeHTML(req.equipment.name)}` : 'Unknown Item';
+
+          return `
+            <tr style="border-bottom: 1px solid var(--border-color);">
+              <td style="padding: 12px; font-family: monospace;">${req.id.substring(0, 8)}...</td>
+              <td style="padding: 12px; font-weight: 600;">${requesterName}</td>
+              <td style="padding: 12px;">${equipName}</td>
+              <td style="padding: 12px;">${req.quantity}</td>
+              <td style="padding: 12px;">${escapeHTML(req.purpose)}</td>
+              <td style="padding: 12px;">${req.expected_return_date}</td>
+              <td style="padding: 12px;">
+                <span class="user-role-tag" style="background: #dbeafe; color: #1e40af;">Released</span>
+              </td>
+              <td style="padding: 12px; text-align: center;">
+                <button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.8rem;" onclick="openReturnModal('${req.id}')">Process Return</button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" style="padding: 16px; text-align: center; color: var(--danger-color);">Error loading returns queue: ${escapeHTML(err.message)}</td></tr>`;
+      }
+    }
+
+    function openReturnModal(requestId) {
+      document.getElementById('returnRequestId').value = requestId;
+      document.getElementById('returnConditionSelect').value = 'Good';
+      document.getElementById('returnRemarksInput').value = '';
+      document.getElementById('returnModal').style.display = 'flex';
+    }
+
+    function closeReturnModal() {
+      document.getElementById('returnModal').style.display = 'none';
+    }
+
+    async function confirmReturnProcess() {
+      const requestId = document.getElementById('returnRequestId').value;
+      const condition = document.getElementById('returnConditionSelect').value;
+      const remarks = document.getElementById('returnRemarksInput').value;
+      const alertBox = document.getElementById('returnsAlert');
+
+      closeReturnModal();
+      alertBox.style.display = 'none';
+
+      try {
+        const result = await returnRequestRPC(requestId, condition, remarks);
+        alertBox.className = 'alert alert-success';
+        alertBox.textContent = result.message || 'Return processed successfully!';
+        alertBox.style.display = 'block';
+        await loadReleasedQueue();
+      } catch (err) {
+        console.error("Return error:", err);
+        alertBox.className = 'alert alert-danger';
+        alertBox.textContent = err.message || 'Failed to process return.';
+        alertBox.style.display = 'block';
+      }
+    }
+  </script>
+</body>
+</html>

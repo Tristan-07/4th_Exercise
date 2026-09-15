@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Borrowing Approvals - Laboratory Asset & Approval System</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h2>Lab Asset System</h2>
+        <p>Lab 4: Access & Approvals</p>
+      </div>
+      <ul class="sidebar-nav" id="sidebarNav"></ul>
+    </aside>
+
+    <div class="main-wrapper">
+      <header class="top-header">
+        <h1 class="page-title">Borrowing Approvals</h1>
+        <div id="userProfileBadge" class="user-profile-badge"></div>
+      </header>
+
+      <main class="content-body">
+        <!-- Notification Alert Banner -->
+        <div id="approvalAlert" class="alert" style="display: none;"></div>
+
+        <!-- Pending Approvals Card -->
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h2 class="card-title" style="margin-bottom: 0;">Borrowing Request Queue</h2>
+            <button class="btn btn-secondary" onclick="loadApprovalsQueue()">🔄 Refresh List</button>
+          </div>
+          
+          <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">
+            Review pending borrowing requests. Only Administrators are permitted to Approve or Reject requests. Self-approval is strictly prohibited (BR-A4-02).
+          </p>
+
+          <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+              <thead>
+                <tr style="background-color: var(--bg-color); text-align: left; border-bottom: 2px solid var(--border-color);">
+                  <th style="padding: 12px;">Request ID</th>
+                  <th style="padding: 12px;">Requester</th>
+                  <th style="padding: 12px;">Equipment</th>
+                  <th style="padding: 12px;">Qty</th>
+                  <th style="padding: 12px;">Purpose</th>
+                  <th style="padding: 12px;">Return Date</th>
+                  <th style="padding: 12px;">Status</th>
+                  <th style="padding: 12px; text-align: center;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="approvalsTableBody">
+                <tr>
+                  <td colspan="8" style="padding: 16px; text-align: center; color: var(--text-muted);">
+                    Loading pending requests...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Rejection Reason Modal -->
+  <div id="rejectModal" class="access-denied-overlay" style="display: none;">
+    <div class="access-denied-box" style="text-align: left; max-width: 480px;">
+      <h3 style="color: var(--danger-color); margin-bottom: 8px;">Reject Borrowing Request</h3>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">
+        Please provide a reason for rejecting this borrowing request:
+      </p>
+      <input type="hidden" id="rejectRequestId">
+      <div class="form-group">
+        <textarea id="rejectionReasonInput" class="form-control" rows="3" placeholder="Enter reason for rejection..." required></textarea>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 16px;">
+        <button class="btn btn-secondary" onclick="closeRejectModal()">Cancel</button>
+        <button class="btn btn-danger" onclick="confirmRejection()">Confirm Rejection</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/permissions.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/borrowing.js"></script>
+  <script>
+    let currentAdminUser = null;
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      // BR-A4-03: Require Administrator role strictly
+      const authData = await requireRole([ROLES.ADMIN]);
+      if (!authData) return;
+
+      currentAdminUser = authData.user;
+      await loadApprovalsQueue();
+    });
+
+    async function loadApprovalsQueue() {
+      const tbody = document.getElementById('approvalsTableBody');
+      try {
+        const requests = await fetchAllBorrowingRequests();
+        if (requests.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="8" style="padding: 16px; text-align: center; color: var(--text-muted);">No borrowing requests found in queue.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = requests.map(req => {
+          const requesterName = req.requester ? escapeHTML(req.requester.full_name) : 'Unknown User';
+          const requesterEmail = req.requester ? `<div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHTML(req.requester.email)}</div>` : '';
+          const equipName = req.equipment ? `[${escapeHTML(req.equipment.equipment_code)}] ${escapeHTML(req.equipment.name)}` : 'Unknown Item';
+
+          let statusStyle = 'background: #fef3c7; color: #92400e;'; // Pending
+          if (req.status === 'Approved') statusStyle = 'background: #dcfce7; color: #166534;';
+          if (req.status === 'Rejected') statusStyle = 'background: #fee2e2; color: #991b1b;';
+          if (req.status === 'Released') statusStyle = 'background: #dbeafe; color: #1e40af;';
+
+          let actionButtons = '-';
+          if (req.status === 'Pending') {
+            const isSelfRequest = currentAdminUser && req.requester_id === currentAdminUser.id;
+            
+            if (isSelfRequest) {
+              actionButtons = `
+                <span style="font-size: 0.75rem; color: var(--danger-color); font-weight: 600;">
+                  (BR-A4-02: Self-Request)
+                </span>
+              `;
+            } else {
+              actionButtons = `
+                <div style="display: flex; gap: 8px; justify-content: center;">
+                  <button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.8rem;" onclick="handleApprove('${req.id}')">Approve</button>
+                  <button class="btn btn-danger" style="padding: 6px 12px; font-size: 0.8rem;" onclick="openRejectModal('${req.id}')">Reject</button>
+                </div>
+              `;
+            }
+          } else if (req.status === 'Approved') {
+            actionButtons = `<button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.8rem;" onclick="handleRelease('${req.id}')">Release Equipment</button>`;
+          } else if (req.status === 'Rejected') {
+            actionButtons = `<span style="font-size: 0.8rem; color: var(--danger-color); font-weight: 600;">Rejected</span>`;
+          } else if (req.status === 'Released') {
+            actionButtons = `<a href="returns.html" class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem;">Return Item</a>`;
+          }
+
+          return `
+            <tr style="border-bottom: 1px solid var(--border-color);">
+              <td style="padding: 12px; font-family: monospace;">${req.id.substring(0, 8)}...</td>
+              <td style="padding: 12px; font-weight: 600;">${requesterName}${requesterEmail}</td>
+              <td style="padding: 12px;">${equipName}</td>
+              <td style="padding: 12px;">${req.quantity}</td>
+              <td style="padding: 12px;">${escapeHTML(req.purpose)}</td>
+              <td style="padding: 12px;">${req.expected_return_date}</td>
+              <td style="padding: 12px;">
+                <span class="user-role-tag" style="${statusStyle}">${req.status}</span>
+              </td>
+              <td style="padding: 12px; text-align: center;">${actionButtons}</td>
+            </tr>
+          `;
+        }).join('');
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" style="padding: 16px; text-align: center; color: var(--danger-color);">Error loading approvals queue: ${escapeHTML(err.message)}</td></tr>`;
+      }
+    }
+
+    async function handleApprove(requestId) {
+      const alertBox = document.getElementById('approvalAlert');
+      alertBox.style.display = 'none';
+
+      if (!confirm("Are you sure you want to APPROVE this borrowing request?")) return;
+
+      try {
+        const result = await approveRequestRPC(requestId);
+        alertBox.className = 'alert alert-success';
+        alertBox.textContent = result.message || 'Request approved successfully!';
+        alertBox.style.display = 'block';
+        await loadApprovalsQueue();
+      } catch (err) {
+        console.error("Approval error:", err);
+        alertBox.className = 'alert alert-danger';
+        alertBox.textContent = err.message || 'Failed to approve request.';
+        alertBox.style.display = 'block';
+      }
+    }
+
+    async function handleRelease(requestId) {
+      const alertBox = document.getElementById('approvalAlert');
+      alertBox.style.display = 'none';
+
+      if (!confirm("Are you sure you want to RELEASE this equipment? Equipment status will change to Borrowed.")) return;
+
+      try {
+        const result = await releaseRequestRPC(requestId);
+        alertBox.className = 'alert alert-success';
+        alertBox.textContent = result.message || 'Equipment released successfully!';
+        alertBox.style.display = 'block';
+        await loadApprovalsQueue();
+      } catch (err) {
+        console.error("Release error:", err);
+        alertBox.className = 'alert alert-danger';
+        alertBox.textContent = err.message || 'Failed to release equipment.';
+        alertBox.style.display = 'block';
+      }
+    }
+
+    function openRejectModal(requestId) {
+      document.getElementById('rejectRequestId').value = requestId;
+      document.getElementById('rejectionReasonInput').value = '';
+      document.getElementById('rejectModal').style.display = 'flex';
+    }
+
+    function closeRejectModal() {
+      document.getElementById('rejectModal').style.display = 'none';
+    }
+
+    async function confirmRejection() {
+      const requestId = document.getElementById('rejectRequestId').value;
+      const reason = document.getElementById('rejectionReasonInput').value;
+      const alertBox = document.getElementById('approvalAlert');
+
+      if (!reason || !reason.trim()) {
+        alert("Please enter a reason for rejecting the request.");
+        return;
+      }
+
+      closeRejectModal();
+      alertBox.style.display = 'none';
+
+      try {
+        const result = await rejectRequestRPC(requestId, reason.trim());
+        alertBox.className = 'alert alert-success';
+        alertBox.textContent = result.message || 'Request rejected successfully!';
+        alertBox.style.display = 'block';
+        await loadApprovalsQueue();
+      } catch (err) {
+        console.error("Rejection error:", err);
+        alertBox.className = 'alert alert-danger';
+        alertBox.textContent = err.message || 'Failed to reject request.';
+        alertBox.style.display = 'block';
+      }
+    }
+  </script>
+</body>
+</html>
